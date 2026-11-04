@@ -1,0 +1,125 @@
+{
+  "protocol": "reach_can_pi05_full_sft_physical7_author_mix45_v4",
+  "sources": {
+    "paper": "https://openaccess.thecvf.com/content/CVPR2026/papers/Ke_REACH_Explicit_Recovery_Behavior_for_Diffusion_Policies_CVPR_2026_paper.pdf",
+    "supplement": "https://openaccess.thecvf.com/content/CVPR2026/supplemental/Ke_REACH_Explicit_Recovery_CVPR_2026_supplemental.pdf",
+    "dataset": "https://robomimic.github.io/docs/v0.3/datasets/robomimic_v0.1.html"
+  },
+  "seeds": [
+    0,
+    1,
+    2
+  ],
+  "policy_datasets": [
+    "paired",
+    "mh"
+  ],
+  "policy_modes": [
+    "baseline",
+    "conditional"
+  ],
+  "detector_datasets": [
+    "ph",
+    "mh",
+    "paired"
+  ],
+  "detector_combinations": {
+    "paired": [
+      "ph",
+      "mh",
+      "paired"
+    ],
+    "mh": [
+      "mh",
+      "ph"
+    ]
+  },
+  "guidance_scales": [
+    0.0,
+    0.2,
+    2.5,
+    4.5
+  ],
+  "training": {
+    "epochs": 50,
+    "global_batch_size": 64,
+    "learning_rate": 2.5e-05,
+    "warmup_steps": 1000,
+    "min_lr": 2.5e-06,
+    "weight_decay": 1e-10,
+    "betas": [
+      0.9,
+      0.95
+    ],
+    "precision": "float32",
+    "gradient_accumulation_steps": 1,
+    "train_scope": "full_vlm_and_action_expert",
+    "loss": "physical_first_7_flow_channels",
+    "normalization": "train_only_q01_q99",
+    "state_tokenization": "real_dimensions_before_padding",
+    "num_gpus": 8,
+    "per_gpu_micro_batch": 8,
+    "policy_execution": "one_policy_on_all_8_gpus_at_a_time",
+    "supervised_action_dims": 7,
+    "log_every": 10
+  },
+  "conditioning": {
+    "base_action": "0",
+    "base_probability": 0.45,
+    "gt_shuffle_probability": 0.0
+  },
+  "detector": {
+    "epochs": 50,
+    "batch_size": 128,
+    "learning_rate": 0.0001,
+    "optimizer": "adam",
+    "image_size": 84,
+    "hidden_dim": 512,
+    "latent_dim": 128,
+    "threshold_method": "gaussian",
+    "kappa": 4.0,
+    "conformal_alpha": 0.05
+  },
+  "evaluation": {
+    "rollouts_per_seed": 50,
+    "environment_seed_start": 100000,
+    "max_steps": {
+      "paired": 400,
+      "mh": 500
+    },
+    "executed_steps": 8,
+    "detector_timing": "policy_call_boundary_after_executed_chunk",
+    "rollback_scope": "last_executed_chunk",
+    "negative_prompt_source": "last_full_action_pred",
+    "checkpoint_reporting": "retain_all_per_seed_results; caption reports mean of per-seed checkpoint maxima",
+    "runtime_status": "published_protocol_runner_with_declared_unpublished_choices"
+  },
+  "paper_reference": {
+    "observation_frames": 2,
+    "action_horizon": 16,
+    "executed_steps": 8,
+    "batch_size": 128,
+    "epochs": 50,
+    "learning_rate": 0.0001
+  },
+  "adaptations_and_unspecified_details": [
+    "Pi0.5 full-parameter fine-tuning: flow matching, one frame, horizon50, 7 physical controls padded to32. User-selected v4 loss supervises only0:7 and masks7:32. VLM is fully trainable; existing converted base is reused.",
+    "Linear action-token conditioning remains an explicit conditional-policy adapter; baseline has no action conditioning. Author source uses nonlinear prompt projection and feature concatenation.",
+    "AE hidden/latent dimensions, two-view concatenation, kappa=4 and held-out-ID calibration are explicit reproduction choices, not claimed author hyperparameters. Fifty rollout episodes and task horizons follow the referenced Robomimic benchmark; REACH does not restate exact evaluation counts.",
+    "AE optimization correction: Adam at lr=1e-4 replaces the original SGD lr=1e-4 after fixed-sample and full-data diagnostics found negligible SGD updates. This is an explicit optimizer deviation from the SGD reproduction setting, not a change to policy optimization. Original detector logs/checkpoints are archived.",
+    "Original masks are used when present; Paired initial-scene grouping is enforced for both masks and fallback splits.",
+    "All demonstrations are retained for Paired policy and AE_Paired; no success-label supervision is introduced.",
+    "Three runs use seeds 0/1/2; exact author seeds are not specified.",
+    "Datasets use robosuite v1.4.1 to match the local environment; this does not guarantee original-paper numerical reproduction.",
+    "Full-SFT v3 uses OpenPI AdamW defaults and a 1000-step warmup with cosine decay compressed to the configured Can training duration; float32 parameter training and configurable gradient accumulation are supported OpenPI choices. Epoch50/global64 remain task experiment choices, not universal Pi0.5 hyperparameters.",
+    "Historical frozen-VLM v2 outputs remain under outputs/paper_can; v3 full32 inspection artifacts remain in outputs/pi05_full_sft_v3; new v4 jobs default to outputs/pi05_full_sft_physical7_v4 and cannot resume legacy optimizer/statistics.",
+    "User batch choice: 8 GPUs * micro8 * accumulation1 = global64. On Paired this gives277 optimizer updates/epoch and13850 updates in50 epochs; cosine duration follows the computed update count. The later v4 request adds a dimension mask only; no timestep mask.",
+    "User-requested v4 objective: only physical action channels0:7 are supervised, rather than official full32 loss. Model tensors remain32D and VLM remains fully trainable. Validation and best-checkpoint selection use the same physical7 loss. No timestep mask added. Fresh output root outputs/pi05_full_sft_physical7_v4.",
+    "Current conditional prompt mixture follows the published main conditional source:45% zero Base and55% own GT; no shuffle. Historical30/30/40 shuffle runs and checkpoints retain their recorded args. This change does not identify the final paper Can config."
+  ],
+  "dataset_preparation": {
+    "ph": "reuse_legacy_pixels_with_vertical_flip_and_official_metadata_restore; original_scene_xml_rerendered=False",
+    "mh": "new_original_xml_and_recorded_state_render",
+    "paired": "new_original_xml_and_recorded_state_render"
+  }
+}

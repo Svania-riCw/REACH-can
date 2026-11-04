@@ -1,0 +1,14 @@
+[
+  {
+    "file": "references/reach_cvpr2026.pdf",
+    "source_url": "https://openaccess.thecvf.com/content/CVPR2026/papers/Ke_REACH_Explicit_Recovery_Behavior_for_Diffusion_Policies_CVPR_2026_paper.pdf",
+    "sha256": "da53cdd74cf208536fc1c557838c2f528ad71b6cab00b2195c2854baa368ec9c",
+    "note": "Cached primary-source PDF from earlier paper review; direct fetch currently returns HTTP 403."
+  },
+  {
+    "file": "references/reach_cvpr2026_supp.pdf",
+    "source_url": "https://openaccess.thecvf.com/content/CVPR2026/supplemental/Ke_REACH_Explicit_Recovery_CVPR_2026_supplemental.pdf",
+    "sha256": "e2bf58ef23f6d9c29bfde833a48d24a3c34441b285ad4b46589b1290e8710d6e",
+    "note": "Cached primary-source PDF from earlier paper review; direct fetch currently returns HTTP 403."
+  }
+]
