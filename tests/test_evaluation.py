@@ -119,12 +119,15 @@ class EvaluationTests(unittest.TestCase):
         self.assertEqual(result['decisions'],3)
         self.assertEqual(len(sim.actions),16)
         detections=[event for event in trace if event['phase']=='detection']
-        self.assertEqual(len(detections),2)
+        self.assertEqual(len(detections),3)
         self.assertEqual(detections[0]['step'],4)
         self.assertTrue(detections[0]['triggered'])
         self.assertEqual(detections[0]['executed_chunk_steps'],4)
         self.assertFalse(detections[1]['triggered'])
-        self.assertEqual(detections[1]['step'],12)
+        self.assertEqual(detections[1]['step'],8)
+        self.assertTrue(detections[1]['after_retreat'])
+        self.assertTrue(detections[1]['previous_triggered'])
+        self.assertEqual(detections[2]['step'],12)
         self.assertTrue(any(e['phase']=='retreat' for e in trace))
         self.assertFalse(any(e.get('guided',False) for e in trace))
         self.assertTrue(any(e.get('recovery_replan',False) for e in trace))
@@ -140,7 +143,7 @@ class EvaluationTests(unittest.TestCase):
         start=next(event for event in trace if event['phase']=='retreat_start')
         self.assertEqual(start['chunk_steps'],4)
         self.assertEqual(start['negative_prompt_steps'],50)
-        self.assertEqual(start['negative_prompt_source'],'last_full_action_pred')
+        self.assertEqual(start['negative_prompt_source'],'last_normal_action_pred')
         np.testing.assert_allclose(start['negative_prompt'],policy.predictions[0],atol=1e-7)
 
     def test_eight_step_chunk_restores_noncommuting_poses_and_gripper(self):
@@ -178,7 +181,7 @@ class EvaluationTests(unittest.TestCase):
         expected=np.repeat(np.asarray(sim.actions[3])[None,:],50,axis=0)
         np.testing.assert_allclose(start['negative_prompt'],expected,atol=1e-7)
         self.assertEqual(start['negative_prompt_mode'],'repeat_last_action')
-        self.assertEqual(start['negative_prompt_source'],'last_executed_action_repeated')
+        self.assertEqual(start['negative_prompt_source'],'last_normal_action_repeated')
 
     def test_full_prompt_normalizes_each_timestep_and_zero_pads_unused_channels(self):
         stats=dict(q01=[-2.]*7,q99=[4.]*7)
@@ -229,7 +232,7 @@ class EvaluationTests(unittest.TestCase):
         np.testing.assert_allclose(conditions[1][0,:,:7].numpy(),expected,atol=1e-7)
         torch.testing.assert_close(conditions[1][0,:,7:],torch.zeros(50,25))
 
-    def test_repeated_recovery_uses_prediction_from_latest_guided_chunk(self):
+    def test_author_previous_flag_replans_without_refreshing_normal_cache(self):
         class RepeatedDetector(OnceDetector):
             def __call__(self,obs):
                 self.calls+=1
@@ -237,11 +240,49 @@ class EvaluationTests(unittest.TestCase):
         policy=FakePolicy();trace=[]
         result=rollout(FakeSim(),policy,RepeatedDetector(),dict(seed=1,state={}),
                        dict(settings(),max_steps=20,scale=2.5),123,trace)
-        self.assertEqual(result['recoveries'],2)
-        self.assertEqual(len(policy.prompts),3)
+        self.assertEqual(result['recoveries'],1)
+        self.assertEqual(len(policy.prompts),4)
         np.testing.assert_allclose(policy.prompts[1],policy.predictions[0],atol=1e-7)
-        np.testing.assert_allclose(policy.prompts[2],policy.predictions[1],atol=1e-7)
-        self.assertFalse(np.array_equal(policy.prompts[1],policy.prompts[2]))
+        for prompt in policy.prompts[2:]:
+            np.testing.assert_allclose(prompt,policy.predictions[0],atol=1e-7)
+        self.assertFalse(np.array_equal(policy.prompts[2],policy.predictions[1]))
+        detections=[event for event in trace if event['phase']=='detection']
+        self.assertTrue(detections[1]['after_retreat'])
+        self.assertTrue(detections[1]['triggered'])
+        self.assertEqual(sum(event['phase']=='retreat_start' for event in trace),1)
+
+    def test_initial_detection_flag_selects_author_replan_without_retreat(self):
+        class InitialDetector(OnceDetector):
+            def __call__(self,obs):
+                self.calls+=1
+                return dict(score=torch.tensor(float(self.calls==1)))
+        policy=FakePolicy();trace=[]
+        result=rollout(FakeSim(),policy,InitialDetector(),dict(seed=1,state={}),
+                       dict(settings(),max_steps=12),123,trace)
+        self.assertEqual(result['recoveries'],0)
+        np.testing.assert_allclose(policy.prompts[1],policy.predictions[0],atol=1e-7)
+        self.assertIsNone(policy.prompts[2])
+        self.assertFalse(any(event['phase']=='retreat' for event in trace))
+
+    def test_normal_forward_refreshes_cache_after_recovery(self):
+        class SequenceDetector(OnceDetector):
+            def __call__(self,obs):
+                self.calls+=1
+                return dict(score=torch.tensor(float(self.calls in (2,5))))
+        policy=FakePolicy();trace=[]
+        result=rollout(FakeSim(),policy,SequenceDetector(),dict(seed=1,state={}),
+                       dict(settings(),max_steps=28),123,trace)
+        self.assertEqual(result['recoveries'],2)
+        self.assertIsNone(policy.prompts[2])
+        np.testing.assert_allclose(policy.prompts[3],policy.predictions[2],atol=1e-7)
+        self.assertFalse(np.array_equal(policy.prompts[3],policy.predictions[0]))
+
+    def test_timeout_protocol_is_twenty_ticks_without_relaxing_pose_tolerance(self):
+        protocol=json.loads((Path(__file__).resolve().parents[1]/'configs/evaluation_can.json').read_text())
+        self.assertEqual(protocol['rollback_max_control_steps'],20)
+        self.assertEqual(protocol['rollback_position_tolerance'],.005)
+        self.assertEqual(protocol['rollback_rotation_tolerance'],.05)
+        self.assertEqual(protocol['recovery_cache_update'],'normal_forward_only')
 
     def test_chunk_retreat_stops_at_episode_budget_without_replanning(self):
         sim=FakeSim();policy=FakePolicy();trace=[]

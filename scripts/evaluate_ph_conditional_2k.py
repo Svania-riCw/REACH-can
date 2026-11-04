@@ -103,7 +103,7 @@ def audit_configuration(configuration, expected_hashes, detector_hash, normaliza
             for event in trace:
                 if event['phase'] == 'retreat_start':
                     prompt = event['negative_prompt']
-                    if (event['negative_prompt_source'] != 'last_full_action_pred'
+                    if (event['negative_prompt_source'] != protocol.get('negative_prompt_source','last_full_action_pred')
                             or event['negative_prompt_steps'] != 50 or len(prompt) != 50
                             or any(len(action) != 7 for action in prompt) or event['chunk_steps'] != 8):
                         raise ValueError('Expected full 50x7 prompt and last executed 8-action chunk')
@@ -112,7 +112,7 @@ def audit_configuration(configuration, expected_hashes, detector_hash, normaliza
                 elif event['phase'] == 'retreat':
                     index = event['rollback_action_index']
                     target_ticks[index] = target_ticks.get(index, 0) + 1
-                    if not active_indices or index != active_indices[0] or target_ticks[index] > 10:
+                    if not active_indices or index != active_indices[0] or target_ticks[index] > protocol.get('rollback_max_control_steps',10):
                         raise ValueError('Rollback target order or per-target budget mismatch')
                 elif event['phase'] == 'retreat_result':
                     if not active_indices or event['rollback_action_index'] != active_indices[0]:

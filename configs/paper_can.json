@@ -89,8 +89,11 @@
     },
     "executed_steps": 8,
     "detector_timing": "policy_call_boundary_after_executed_chunk",
-    "rollback_scope": "last_executed_chunk",
-    "negative_prompt_source": "last_full_action_pred",
+    "rollback_scope": "last_normal_executed_chunk",
+    "negative_prompt_source": "last_normal_action_pred",
+    "recovery_state_machine": "author_previous_detection_flag",
+    "recovery_cache_update": "normal_forward_only",
+    "rollback_max_control_steps": 20,
     "checkpoint_reporting": "retain_all_per_seed_results; caption reports mean of per-seed checkpoint maxima",
     "runtime_status": "published_protocol_runner_with_declared_unpublished_choices"
   },

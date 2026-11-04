@@ -69,8 +69,9 @@ def build_recovery_prompt(mode,action_pred,last_executed_action):
 
 def rollout(sim,policy,detector,initial,settings,episode_seed,trace,frame_callback=None):
     reset=sim.reset(initial['seed'],initial['state'])
-    obs=reset['observation'];chunk_history=[];pending=None;previous_gripper=0.
+    obs=reset['observation'];cached_chunk=None;previous_gripper=0.
     last_action_pred=None;prediction_seed=None
+    after_retreat=False;executed_chunk_steps=0
     if frame_callback:frame_callback(obs)
     steps=recoveries=decisions=clipped=0
     success=bool(obs['success']);termination='success' if success else 'budget'
@@ -79,19 +80,27 @@ def rollout(sim,policy,detector,initial,settings,episode_seed,trace,frame_callba
         if detector is None:return None
         return float(detector(observation)['score'].item())
     initial_score=score(obs)
+    previous_triggered=detector is not None and initial_score>detector.threshold
     while not success and steps<settings['max_steps']:
-        if chunk_history and detector is not None:
+        pending=None
+        if cached_chunk and detector is not None:
             error=score(obs)
-            rollback_chunk=chunk_history[-1]
+            rollback_chunk=cached_chunk
             triggered=error>detector.threshold
             trace.append(dict(step=steps,phase='detection',anomaly_score=error,triggered=triggered,
-                              policy_call=decisions+1,executed_chunk_steps=len(chunk_history[-1])))
-            if triggered:
-                recoveries+=1
+                              previous_triggered=bool(previous_triggered),after_retreat=after_retreat,
+                              policy_call=decisions+1,executed_chunk_steps=executed_chunk_steps))
+            if previous_triggered or triggered:
                 prompt_mode=settings.get('negative_prompt_mode','full_plan')
                 pending=build_recovery_prompt(prompt_mode,last_action_pred,rollback_chunk[-1]['action'])
-                prompt_source={'full_plan':'last_full_action_pred',
-                               'repeat_last_action':'last_executed_action_repeated'}[prompt_mode]
+                prompt_source={'full_plan':'last_normal_action_pred',
+                               'repeat_last_action':'last_normal_action_repeated'}[prompt_mode]
+            if previous_triggered:
+                trace.append(dict(step=steps,phase='recovery_replan',after_retreat=after_retreat,
+                                  negative_prompt_source=prompt_source,negative_prompt=pending.tolist(),
+                                  prediction_noise_seed=prediction_seed))
+            elif triggered:
+                recoveries+=1
                 trace.append(dict(step=steps,phase='retreat_start',chunk_steps=len(rollback_chunk),
                                   negative_prompt_mode=prompt_mode,negative_prompt_source=prompt_source,
                                   negative_prompt_steps=len(pending),
@@ -125,16 +134,20 @@ def rollout(sim,policy,detector,initial,settings,episode_seed,trace,frame_callba
                     recoveries=recoveries,decisions=decisions,clipped_predictions=clipped,initial_score=initial_score,
                     seconds=time.perf_counter()-started)
                 previous_gripper=rollback_chunk[0]['previous_gripper']
-                chunk_history.pop()
+                previous_triggered=triggered;after_retreat=True
+                continue
+            previous_triggered=triggered
 
+        after_retreat=False
         seed=(episode_seed+decisions*1009)%(2**63-1)
         prediction=policy.predict(obs,seed,pending,settings['scale'])
         plan=prediction['action']
-        last_action_pred=np.asarray(prediction['action_pred'],dtype=np.float32).copy()
-        if last_action_pred.shape!=(policy.config.action_horizon,7) or not np.isfinite(last_action_pred).all():
+        action_pred=np.asarray(prediction['action_pred'],dtype=np.float32)
+        if action_pred.shape!=(policy.config.action_horizon,7) or not np.isfinite(action_pred).all():
             raise ValueError('Policy must return the complete finite [horizon,7] action prediction')
-        prediction_seed=seed
         used_negative=pending is not None;pending=None;clipped+=prediction['clipped_predictions'];decisions+=1
+        if not used_negative:
+            last_action_pred=action_pred.copy();prediction_seed=seed
         executed_chunk=[]
         for raw_action in plan[:settings['executed_steps']]:
             if steps>=settings['max_steps']:break
@@ -151,7 +164,12 @@ def rollout(sim,policy,detector,initial,settings,episode_seed,trace,frame_callba
             trace.append(event)
             success=bool(obs['success'])
             if success:termination='success';break
-        if executed_chunk:chunk_history.append(executed_chunk)
+        executed_chunk_steps=len(executed_chunk)
+        if executed_chunk and not used_negative:
+            cached_chunk=executed_chunk
+            trace.append(dict(step=steps,phase='normal_cache_update',chunk_steps=len(cached_chunk),
+                              prediction_noise_seed=prediction_seed,
+                              action_pred_sha256=hashlib.sha256(last_action_pred.tobytes()).hexdigest()))
     return dict(success=success,termination=termination,physical_steps=steps,recoveries=recoveries,
                 decisions=decisions,clipped_predictions=clipped,initial_score=initial_score,
                 seconds=time.perf_counter()-started)

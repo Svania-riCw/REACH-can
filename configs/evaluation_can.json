@@ -26,9 +26,11 @@
     2
   ],
   "environment_seed_start": 100000,
-  "rollback_scope": "last_executed_chunk",
-  "negative_prompt_source": "last_full_action_pred",
-  "rollback_max_control_steps": 10,
+  "rollback_scope": "last_normal_executed_chunk",
+  "negative_prompt_source": "last_normal_action_pred",
+  "recovery_state_machine": "author_previous_detection_flag",
+  "recovery_cache_update": "normal_forward_only",
+  "rollback_max_control_steps": 20,
   "rollback_position_tolerance": 0.005,
   "rollback_rotation_tolerance": 0.05,
   "rollback_gripper": "previous_executed_command",
@@ -45,11 +47,11 @@
   "unpublished_choices": [
     "REACH does not give exact evaluation RNG seeds or checkpoint evaluation cadence. All available saved checkpoints are included, with all per-checkpoint results retained.",
     "50 rollouts and task horizons follow the referenced Robomimic benchmark; REACH does not restate the counts explicitly.",
-    "Detection runs at policy-call boundaries after an executed action chunk of 8 actions. On failure, the entire last actually executed chunk is retreated by visiting its recorded pre-action EEF poses in reverse order. Each target has at most 10 closed-loop OSC control steps with 5mm/0.05rad tolerance; an 8-action chunk therefore has at most 80 retreat control steps, subject to the remaining episode budget. Gripper commands follow the recorded previous commands. These servo settings and gripper handling are not specified in REACH.",
+    "Detection runs at policy-call boundaries after an executed action chunk of 8 actions and once after a completed retreat. A false-to-true detection transition retreats the cached normal-forward chunk by visiting its recorded pre-action EEF poses in reverse order. Each target has at most 20 closed-loop OSC control steps with 5mm/0.05rad tolerance; an 8-action chunk therefore has at most 160 retreat control steps, subject to the remaining episode budget. Gripper commands follow the recorded previous commands. These servo settings and gripper handling are not specified in REACH.",
     "All physical steps including retreat count toward the common budget. No simulator state reset or object teleportation is allowed during recovery.",
     "Frozen held-out-ID threshold and kappa=4 are local choices. REACH describes Gaussian historical errors but does not publish an executable calibration protocol.",
-    "The complete 50-step physical7 action_pred from the policy call that generated the most recently executed chunk is cached before environment clipping. On detection it becomes the negative prompt, including unexecuted predictions as a rejected candidate plan. It is normalized using checkpoint action statistics, padded with zero channels to32, and encoded with the checkpoint action-conditioning projection; no last-action repetition is used.",
-    "Recovery guidance applies to the next replanned action chunk; a subsequent nominal chunk uses the base prompt. Every policy call, including guided replans, refreshes the complete prediction cache so it remains aligned with the most recently executed chunk. This differs from the author's normal-forward-only buffer updates. No additional retry cap is imposed beyond the step budget."
+    "The complete 50-step physical7 action_pred and executed EEF chunk are cached only for normal forward predictions, before environment clipping for action_pred. Recovery predictions do not update either cache. The cached full plan becomes the negative prompt, including unexecuted predictions as a rejected candidate plan. It is normalized using checkpoint action statistics, padded with zero channels to32, and encoded with the checkpoint action-conditioning projection; no last-action repetition is used.",
+    "The recovery state machine follows the author's pre_flag/current_flag branches: a previous true flag selects negative-prompt replanning regardless of the current detection, including the first call after retreat; otherwise a current true flag selects retreat, and both false select normal forward execution and cache updates. The current flag is retained for the next policy boundary. EEF servo retreat and its timeout failure termination remain local adaptations, not the author's reverse-action playback."
   ],
   "existing_training_adaptations": [
     "Pi0.5 full-parameter fine-tuning, user-selected physical7-only flow loss, train-only quantiles, real-state tokenization; one frame/horizon50/10 Euler steps. Model stays32D; conditional action prompts only for conditional checkpoints.",
